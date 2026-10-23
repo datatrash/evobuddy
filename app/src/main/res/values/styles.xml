@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.EvoBuddy" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#F8F6F0</item>
+        <item name="android:colorAccent">#A85416</item>
+    </style>
+    <color name="icon_background">#252E2A</color>
+</resources>

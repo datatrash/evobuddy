@@ -1,0 +1,18 @@
+EvoBuddy
+Copyright 2026 EvoBuddy contributors
+
+The application, website, original artwork and store metadata are licensed
+under the Apache License, Version 2.0. See LICENSE.
+
+EvoBuddy includes AndroidX, Jetpack Compose, Material Components and Material
+Icons, copyright The Android Open Source Project and Google, and Kotlin and
+kotlinx.coroutines, copyright JetBrains and their contributors. These libraries
+are distributed under the Apache License, Version 2.0. Their respective
+copyright notices and licences continue to apply.
+
+The Gradle wrapper is distributed under the Apache License, Version 2.0;
+its original notices are retained in the wrapper files.
+
+Honeywell, Honeywell Home, Evohome, Resideo and Total Connect Comfort are
+trademarks of their respective owners. No affiliation or endorsement is implied.
+The Apache licence does not grant rights to third-party trademarks or services.

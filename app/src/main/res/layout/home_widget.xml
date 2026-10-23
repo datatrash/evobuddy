@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_button"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal"
+    android:gravity="center_vertical" android:padding="16dp" android:background="@drawable/widget_background" android:foreground="@drawable/widget_tap_ripple">
+    <ImageView android:id="@+id/widget_icon" android:layout_width="28dp" android:layout_height="28dp" android:src="@drawable/ic_radiator" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="12dp">
+        <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="EvoBuddy" android:textSize="15sp" android:fontFamily="sans-serif-medium" android:textColor="@color/widget_text" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_subtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Tap to configure" android:textSize="12sp" android:textColor="@color/widget_secondary" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+</LinearLayout>
