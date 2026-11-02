@@ -1,0 +1,1 @@
+Initial F-Droid release preparation. Includes room controls, weekly schedules, editable multi-room shortcuts, launcher actions and temperature widgets. Automatic delivery retries are bounded to five minutes. Simplified the Home heading and added the website link in Settings.

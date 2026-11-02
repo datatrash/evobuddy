@@ -1,0 +1,1 @@
+Voorbereiding van de eerste F-Droid-uitgave. Met kamerbediening, weekschema's, bewerkbare snelkoppelingen, startschermacties en temperatuurwidgets. Wijzigingen worden maximaal vijf minuten opnieuw geprobeerd. De kop op Home is vereenvoudigd en Instellingen bevat een websitelink.

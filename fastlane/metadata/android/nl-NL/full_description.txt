@@ -1,0 +1,11 @@
+Bedien een Europees Evohome-systeem met een native Android-app.
+
+<ul><li>Stel kamertemperaturen in met een schuifregelaar en tijdelijke of permanente instellingen.</li><li>Bewerk weekschema's, kopieer dagen tussen kamers en importeer of exporteer schema's.</li><li>Bewaar snelkoppelingen voor meerdere kamers met een duur of eindtijd.</li><li>Start snelkoppelingen vanaf het startscherm zonder de app te openen.</li><li>Bekijk temperaturen in compacte widgets en open direct de kamerinstellingen.</li><li>Orden kamers, bewaar favorieten en kies een licht of donker thema.</li></ul>
+
+De app probeert aangevraagde wijzigingen automatisch opnieuw, zonder de oorspronkelijke eindtijd te verlengen. Na maximaal vijf minuten stopt de poging. Een uitroepteken bij het vernieuwingspictogram geeft aan dat een wijziging niet bevestigd is.
+
+Vereist een Evohome-systeem met een Europees Total Connect Comfort-account en een internetverbinding. De app is afhankelijk van de clouddienst van Resideo; een eigen server of lokale verbinding wordt niet ondersteund. De demomodus werkt zonder account. De app zelf is Engelstalig.
+
+Geen advertenties of analyseprogramma's. Je wachtwoord wordt niet opgeslagen. Sessietokens worden versleuteld met Android Keystore.
+
+Onafhankelijke app, niet verbonden aan Honeywell of Resideo. Evohome en Total Connect Comfort zijn handelsmerken van hun respectieve eigenaren.

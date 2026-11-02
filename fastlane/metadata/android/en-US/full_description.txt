@@ -1,0 +1,11 @@
+Control a European Evohome system from a native Android app.
+
+<ul><li>Set room temperatures with a slider and timed or permanent overrides.</li><li>Edit weekly schedules, copy days between rooms, and import or export schedules.</li><li>Save multi-room shortcuts with a duration or end time, then edit them later.</li><li>Run shortcuts from launcher icons or widgets without opening the app.</li><li>Use compact temperature widgets that open a room's controls.</li><li>Reorder rooms, mark favourites and choose a light or dark theme.</li></ul>
+
+Requested room changes retry automatically, with a fixed end time and a five-minute delivery window. An exclamation mark on the refresh icon indicates an unconfirmed change. The app shows reported settings rather than assuming a request succeeded.
+
+Requires an Evohome system linked to a European Total Connect Comfort account and an internet connection. The app depends on Resideo's proprietary cloud service and cannot use a self-hosted replacement. Demo mode is available without an account.
+
+No ads, analytics or developer-operated server. Your password is not stored; session tokens are encrypted using Android Keystore.
+
+Independent app, not affiliated with Honeywell or Resideo. Evohome and Total Connect Comfort are trademarks of their respective owners.
