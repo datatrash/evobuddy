@@ -1,0 +1,32 @@
+AntiFeatures:
+  NonFreeNet:
+    en-US: Requires Resideo's proprietary European Total Connect Comfort cloud service
+      to control an Evohome system.
+  TetheredNet:
+    en-US: The TCC endpoint is fixed; there is no self-hosted or local controller
+      connection.
+Categories:
+  - System
+License: Apache-2.0
+WebSite: https://evobuddy.datatra.sh
+SourceCode: https://github.com/datatrash/evobuddy
+IssueTracker: https://github.com/datatrash/evobuddy/issues
+Changelog: https://github.com/datatrash/evobuddy/tree/HEAD/fastlane/metadata/android/en-US/changelogs
+
+AutoName: EvoBuddy
+
+RepoType: git
+Repo: https://github.com/datatrash/evobuddy.git
+
+Builds:
+  - versionName: 0.1.10
+    versionCode: 11
+    commit: v0.1.10
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+$
+CurrentVersion: 0.1.10
+CurrentVersionCode: 11
