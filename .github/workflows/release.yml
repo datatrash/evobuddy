@@ -1,0 +1,81 @@
+name: APK release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.1.10
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - name: Validate release and signing configuration
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE" || { echo '::error::Configure ANDROID_KEYSTORE_BASE64 in repository Actions secrets.'; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo '::error::Configure ANDROID_KEYSTORE_PASSWORD in repository Actions secrets.'; exit 1; }
+          python3 tools/check-release.py --expected-tag "$RELEASE_TAG"
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Test and build
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+      - name: Sign and verify APK
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS || 'evobuddy' }}
+        run: |
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.p12"
+          chmod 600 "$RUNNER_TEMP/release.p12"
+          version="${RELEASE_TAG#v}"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/release.p12" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out "$RUNNER_TEMP/EvoBuddy-$version.apk" \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+          certificate=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/EvoBuddy-$version.apk")
+          printf '%s\n' "$certificate"
+          if printf '%s\n' "$certificate" | grep -qi 'CN=Android Debug'; then
+            echo '::error::Use a production signing key for releases.'
+            exit 1
+          fi
+          cd "$RUNNER_TEMP"
+          sha256sum "EvoBuddy-$version.apk" > "EvoBuddy-$version.apk.sha256"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          code=$(python3 -c 'import pathlib,re; print(re.search(r"versionCode = (\d+)",pathlib.Path("app/build.gradle.kts").read_text())[1])')
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/EvoBuddy-$version.apk" \
+            "$RUNNER_TEMP/EvoBuddy-$version.apk.sha256" \
+            --verify-tag --title "EvoBuddy $version" \
+            --notes-file "fastlane/metadata/android/en-US/changelogs/$code.txt"
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.p12"
