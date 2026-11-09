@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://evobuddy.datatra.sh/sitemap.xml
