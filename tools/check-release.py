@@ -40,8 +40,11 @@ def main():
     version = re.search(r'versionName = "([^"]+)"', build)[1]
     code = re.search(r"versionCode = (\d+)", build)[1]
     recipe = (ROOT / "fdroid/metadata/sh.datatra.evobuddy.yml").read_text()
-    for expected in (f"versionName: {version}", f"versionCode: {code}", f"commit: v{version}", f"CurrentVersion: {version}", f"CurrentVersionCode: {code}"):
+    for expected in (f"versionName: {version}", f"versionCode: {code}", f"CurrentVersion: {version}", f"CurrentVersionCode: {code}"):
         assert expected in recipe, f"Metadata mismatch: {expected}"
+    pinned_commit = re.search(r"^    commit: ([a-f0-9]{40})$", recipe, re.MULTILINE)
+    assert pinned_commit, "F-Droid build must pin a full commit hash"
+    assert re.search(r"^AuthorName: .+", recipe, re.MULTILINE), "Missing F-Droid author"
     assert "License: Apache-2.0" in recipe
     assert "NonFreeNet:" in recipe and "TetheredNet:" in recipe
     assert "Version 2.0, January 2004" in (ROOT / "LICENSE").read_text()
@@ -84,10 +87,12 @@ def main():
         args.require_tag = True
     if args.require_tag:
         subprocess.run(["git", "rev-parse", "--verify", f"refs/tags/v{version}"], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+        tagged = subprocess.check_output(["git", "rev-parse", f"v{version}^{{commit}}"], cwd=ROOT, text=True).strip()
         if args.expected_tag:
-            tagged = subprocess.check_output(["git", "rev-parse", f"v{version}^{{commit}}"], cwd=ROOT, text=True).strip()
             current = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
             assert tagged == current, "Build checkout does not match the release tag"
+        else:
+            assert tagged == pinned_commit[1], "F-Droid commit does not match the release tag"
     print(f"Release {version} ({code}): metadata, artwork and local site links checked")
 
 

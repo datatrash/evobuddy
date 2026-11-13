@@ -8,6 +8,7 @@ AntiFeatures:
 Categories:
   - System
 License: Apache-2.0
+AuthorName: datatrash
 WebSite: https://evobuddy.datatra.sh
 SourceCode: https://github.com/datatrash/evobuddy
 IssueTracker: https://github.com/datatrash/evobuddy/issues
@@ -21,7 +22,7 @@ Repo: https://github.com/datatrash/evobuddy.git
 Builds:
   - versionName: 0.1.10
     versionCode: 11
-    commit: v0.1.10
+    commit: a845f5e82142cd0e6580e39d4613adc48895a8c0
     subdir: app
     gradle:
       - yes

@@ -48,6 +48,10 @@ secrets before building and does not publish an unsigned APK as an installer.
    ```
 
 5. Check the Actions run and the APK/checksum on the Releases page.
+6. Resolve the published tag with `git rev-parse 'v0.1.10^{commit}'` and put that
+   full hash in the F-Droid recipe's `commit` field. Commit this metadata update
+   separately, then run `python tools/check-release.py --require-tag` before
+   preparing an F-Droid submission. Do not move the published release tag.
 
 Local previews, production GitHub releases and F-Droid builds can have different
 signing keys. Switching channels may require uninstalling the old app first,
