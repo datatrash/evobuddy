@@ -1,0 +1,1 @@
+EvoBuddy now renews TCC sessions automatically when possible. If you need to sign in again, reconnect your original account to keep your shortcuts, favourites, room order, and settings.

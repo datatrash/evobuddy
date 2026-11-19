@@ -20,8 +20,8 @@ RepoType: git
 Repo: https://github.com/datatrash/evobuddy.git
 
 Builds:
-  - versionName: 0.1.10
-    versionCode: 11
+  - versionName: 0.1.11
+    versionCode: 12
     commit: a845f5e82142cd0e6580e39d4613adc48895a8c0
     subdir: app
     gradle:
@@ -29,5 +29,5 @@ Builds:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+$
-CurrentVersion: 0.1.10
-CurrentVersionCode: 11
+CurrentVersion: 0.1.11
+CurrentVersionCode: 12

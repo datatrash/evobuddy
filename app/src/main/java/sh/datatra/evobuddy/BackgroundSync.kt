@@ -30,7 +30,7 @@ object BackgroundSync {
 
     fun client(context: Context): TccClient = synchronized(monitor) {
         sharedClient ?: TokenVault(context.applicationContext).let { vault ->
-            TccClient(saveToken = vault::save).apply { session = vault.read() }
+            TccClient(removeToken = vault::clear, saveToken = vault::save).apply { session = vault.read() }
         }.also { sharedClient = it }
     }
     private fun invalidate(change: () -> Unit = {}) {

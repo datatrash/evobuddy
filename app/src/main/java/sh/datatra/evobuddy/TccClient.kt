@@ -4,6 +4,8 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -62,41 +64,75 @@ class CloudTransport : Transport {
     }
 }
 class CloudException(message: String, val status: Int = 0) : Exception(message)
-class TccClient(private val transport: Transport = CloudTransport(), private val saveToken: (JSONObject) -> Unit = {}) {
+class TccClient(
+    private val transport: Transport = CloudTransport(),
+    private val removeToken: () -> Unit = {},
+    private val saveToken: (JSONObject) -> Unit = {}
+) {
     @Volatile var session: JSONObject? = null
     private val sessionLock = Any()
     private var sessionGeneration = 0
+    private val _sessionRejected = MutableStateFlow(false)
+    val sessionRejected = _sessionRejected.asStateFlow()
     @Volatile private var blockedUntil = Instant.EPOCH
-    fun clearSession() = synchronized(sessionLock) { sessionGeneration++; session = null }
+    private data class Credentials(val generation: Int, val token: JSONObject)
+
+    fun clearSession() = synchronized(sessionLock) { sessionGeneration++; session = null; _sessionRejected.value = false }
+    fun replaceSession(token: JSONObject) = synchronized(sessionLock) {
+        saveToken(token)
+        sessionGeneration++
+        session = token
+        _sessionRejected.value = false
+    }
     private fun checkRateLimit() { if (Instant.now() < blockedUntil) throw CloudException("TCC is limiting requests. Wait a minute before trying again.", 429) }
     fun login(username: String, password: String) {
-        clearSession()
-        authenticate(mapOf("grant_type" to "password", "Username" to username.trim(), "Password" to password))
+        replaceSession(authenticate(mapOf("grant_type" to "password", "Username" to username.trim(), "Password" to password)))
     }
-    private fun authenticate(fields: Map<String, String>) {
-        val generation = synchronized(sessionLock) { sessionGeneration }
+    private fun authenticate(fields: Map<String, String>): JSONObject {
         checkRateLimit()
         val application = java.util.Base64.getEncoder().encodeToString("4a231089-d2b6-41bd-a5eb-16a0a422b999:1a15cdb8-42de-407b-add0-059f92c530cb".toByteArray())
         val form = (fields + ("scope" to "EMEA-V1-Basic EMEA-V1-Anonymous")).entries.joinToString("&") { URLEncoder.encode(it.key, "UTF-8") + "=" + URLEncoder.encode(it.value, "UTF-8") }
         val response = transport.send("POST", "Auth/OAuth/Token", mapOf("Authorization" to "Basic $application", "Accept" to "application/json", "Content-Type" to "application/x-www-form-urlencoded", "Cache-Control" to "no-cache, no-store"), form)
         if (response.code !in 200..299) fail(response.code, auth = true)
         val json = JSONObject(response.body)
-        require(json.optString("access_token").isNotBlank() && json.optString("refresh_token").isNotBlank()) { "TCC returned an invalid session." }
-        synchronized(sessionLock) {
-            check(generation == sessionGeneration) { "The account was disconnected." }
-            session = json.put("expiresAt", Instant.now().plusSeconds(json.getLong("expires_in") - 30).toString())
-            saveToken(json)
+        if (json.isNull("refresh_token") || json.optString("refresh_token").isBlank()) json.put("refresh_token", fields["refresh_token"])
+        require(!json.isNull("access_token") && json.optString("access_token").isNotBlank() && !json.isNull("refresh_token")) {
+            "TCC returned an invalid session."
+        }
+        return json.put("expiresAt", Instant.now().plusSeconds(json.getLong("expires_in") - 30).toString())
+    }
+    private fun credentials(): Credentials = synchronized(sessionLock) {
+        Credentials(sessionGeneration, session ?: throw CloudException("Please connect your TCC account.", 401))
+    }
+
+    private fun rejectSession(rejected: Credentials) = synchronized(sessionLock) {
+        if (sessionGeneration == rejected.generation && session === rejected.token) {
+            session = null
+            sessionGeneration++
+            removeToken()
+            _sessionRejected.value = true
         }
     }
-    @Synchronized private fun token(): String {
-        val current = session ?: throw CloudException("Please connect your TCC account.", 401)
-        if (current.optString("expiresAt").toInstantOrNull()?.isAfter(Instant.now()) != true) refreshToken()
-        return session!!.getString("access_token")
-    }
-    @Synchronized private fun refreshToken() {
-        val refresh = session?.optString("refresh_token").orEmpty()
-        if (refresh.isBlank()) throw CloudException("Your session has expired. Please sign in again.", 401)
-        authenticate(mapOf("grant_type" to "refresh_token", "refresh_token" to refresh))
+
+    @Synchronized private fun refreshToken(previous: Credentials): Credentials {
+        val current = credentials()
+        check(current.generation == previous.generation) { "The TCC session changed." }
+        if (current.token !== previous.token) return current
+        val refresh = current.token.optString("refresh_token")
+        val renewed = try {
+            if (refresh.isBlank()) throw CloudException("Missing refresh token.", 401)
+            authenticate(mapOf("grant_type" to "refresh_token", "refresh_token" to refresh))
+        } catch (error: CloudException) {
+            if (error.status != 400 && error.status != 401) throw error
+            rejectSession(current)
+            throw CloudException("Your TCC session has expired. Reconnect your account.", 401)
+        }
+        return synchronized(sessionLock) {
+            check(sessionGeneration == current.generation) { "The TCC session changed." }
+            saveToken(renewed)
+            session = renewed
+            Credentials(current.generation, renewed)
+        }
     }
     private fun fail(code: Int, auth: Boolean = false): Nothing {
         if (code == 429) blockedUntil = Instant.now().plusSeconds(60)
@@ -110,15 +146,25 @@ class TccClient(private val transport: Transport = CloudTransport(), private val
     }
     fun request(method: String, path: String, body: JSONObject? = null): String {
         checkRateLimit()
-        fun send() = transport.send(method, "WebAPI/emea/api/v1/$path", mapOf("Authorization" to "bearer ${token()}", "Accept" to "application/json", "Content-Type" to "application/json"), body?.toString())
-        var result = send()
+        fun send(auth: Credentials): HttpResult {
+            checkRateLimit()
+            check(synchronized(sessionLock) { sessionGeneration == auth.generation }) { "The TCC session changed." }
+            return transport.send(method, "WebAPI/emea/api/v1/$path", mapOf("Authorization" to "bearer ${auth.token.getString("access_token")}", "Accept" to "application/json", "Content-Type" to "application/json"), body?.toString())
+        }
+        var auth = credentials()
+        if (auth.token.optString("expiresAt").toInstantOrNull()?.isAfter(Instant.now()) != true) auth = refreshToken(auth)
+        var result = send(auth)
         // A rejected authorization request was not applied; refresh once, never retry timeouts or 5xx writes.
-        if (result.code == 401) { refreshToken(); result = send() }
+        if (result.code == 401) {
+            auth = refreshToken(auth)
+            result = send(auth)
+            if (result.code == 401) rejectSession(auth)
+        }
         if (result.code !in 200..299) fail(result.code)
         return result.body
     }
-    fun discover(): List<Home> {
-        val user = JSONObject(request("GET", "userAccount")).getString("userId")
+    fun accountId(): String = JSONObject(request("GET", "userAccount")).getString("userId")
+    fun discover(user: String = accountId()): List<Home> {
         return parseHomes(JSONArray(request("GET", "location/installationInfo?userId=${URLEncoder.encode(user, "UTF-8")}&includeTemperatureControlSystems=True")))
     }
     fun status(home: Home): JSONObject = JSONObject(request("GET", "location/${home.locationId}/status?includeTemperatureControlSystems=True"))

@@ -22,17 +22,19 @@ data class UiState(
     val error: Boolean = false, val favourites: Set<String> = emptySet(), val shortcuts: List<Shortcut> = emptyList(),
     val theme: String = "System", val scheduleErrors: Map<String, String> = emptyMap(), val scheduleSync: Map<String, Instant> = emptyMap(),
     val roomOrder: Map<String, List<String>> = emptyMap(), val shortcutRuns: Map<String, List<RoomCommandResult>> = emptyMap(),
-    val pendingChanges: Int = 0, val commandIssues: Map<String, String> = emptyMap()
+    val pendingChanges: Int = 0, val commandIssues: Map<String, String> = emptyMap(), val reconnecting: Boolean = false
 ) { val home: Home? get() = snapshot?.homes?.firstOrNull { it.key == homeKey } ?: snapshot?.homes?.firstOrNull() }
 
-class AppState(application: Application) : AndroidViewModel(application) {
+class AppState @JvmOverloads constructor(application: Application, private val loginClient: TccClient = TccClient()) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("evobuddy", Context.MODE_PRIVATE)
     private val vault = TokenVault(application)
     private val client = BackgroundSync.client(application)
+    private fun hasSavedAccount() = prefs.contains("tccAccountId") || prefs.contains("cache") || prefs.contains("shortcuts")
     private val _state = MutableStateFlow(UiState(
         snapshot = runCatching { prefs.getString("cache", null)?.let { snapshotFromJson(JSONObject(it)) } }.getOrNull(),
         homeKey = prefs.getString("home", null), demo = prefs.getBoolean("demo", false), connected = client.session != null,
         pendingChanges = Commands.pending(application).size, commandIssues = Commands.issues(application),
+        reconnecting = client.session == null && !prefs.getBoolean("demo", false) && hasSavedAccount(),
         favourites = prefs.getStringSet("favourites", emptySet())!!.toSet(), theme = prefs.getString("theme", "System")!!,
         shortcuts = runCatching { JSONArray(prefs.getString("shortcuts", "[]")).objects().map(Shortcut::parse) }.getOrDefault(emptyList()),
         roomOrder = runCatching { JSONObject(prefs.getString("roomOrder", "{}")!!).let { json -> json.keys().asSequence().associateWith { key -> json.getJSONArray(key).let { a -> (0 until a.length()).map { a.getString(it) } } } } }.getOrDefault(emptyMap())
@@ -59,6 +61,16 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (_state.value.demo) _state.update { it.copy(snapshot = it.snapshot ?: demoSnapshot(), connected = false) }
         HomeActions.sync(application)
         prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
+        viewModelScope.launch {
+            client.sessionRejected.collect { rejected ->
+                if (rejected && hasSavedAccount() && !_state.value.demo) {
+                    BackgroundSync.cancel(application)
+                    Commands.clear(application)
+                    _state.update { it.copy(connected = false, reconnecting = true, refreshing = false, live = false) }
+                    HomeActions.updateWidgets(application)
+                }
+            }
+        }
     }
     override fun onCleared() { prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener); handler.removeCallbacksAndMessages(null); super.onCleared() }
     private fun publish(snapshot: Snapshot) {
@@ -111,26 +123,57 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.value = UiState(theme = theme)
         HomeActions.disconnect(getApplication())
     }
+    fun reconnect() {
+        if (_state.value.busy || _state.value.demo) return
+        operationVersion++
+        refreshJob?.cancel(); scheduleJob?.cancel()
+        _state.update { it.copy(reconnecting = true, refreshing = false, message = null, error = false) }
+    }
+    fun cancelReconnect() {
+        if (!_state.value.busy && client.session != null) {
+            _state.update { it.copy(reconnecting = false, message = null, error = false) }
+        }
+    }
     fun login(email: String, password: String) = launch("Connecting to European TCC…") {
         require(email.isNotBlank() && password.isNotEmpty()) { "Enter your TCC email and password." }
-        withContext(Dispatchers.IO) { client.login(email, password) }
-        Commands.clear(getApplication())
-        // Account data is discarded before discovery to prevent cross-account cache/backup leaks.
-        val theme = _state.value.theme
-        prefs.edit().clear().putString("theme", theme).commit()
-        _state.update { UiState(connected = true, busy = true, theme = theme) }
-        val homes = withContext(Dispatchers.IO) { client.discover() }
-        require(homes.isNotEmpty()) { "No Evohome systems were found on this European TCC account." }
-        publish(Snapshot(homes, Instant.EPOCH))
-        refreshInternal()
-        dismiss()
+        val savedAccount = prefs.getString("tccAccountId", null)
+        val previous = _state.value.snapshot
+        val recovering = hasSavedAccount()
+        val (account, snapshot, session) = withContext(Dispatchers.IO) {
+            try {
+                loginClient.login(email, password)
+                val account = loginClient.accountId()
+                require(savedAccount == null || savedAccount == account) { "Sign in with your original TCC account to recover your saved settings." }
+                val homes = loginClient.discover(account)
+                require(homes.isNotEmpty()) { "No Evohome systems were found on this European TCC account." }
+                if (recovering && savedAccount == null) {
+                    val previousKeys = previous?.homes.orEmpty().map { it.key }.toSet()
+                    require(previousKeys.isNotEmpty() && homes.map { it.key }.containsAll(previousKeys)) {
+                        "This account does not have access to the saved Evohome systems. Sign in with your original account."
+                    }
+                }
+                val statuses = homes.distinctBy { it.locationId }.associate { it.locationId to loginClient.status(it) }
+                val restored = homes.map { applyStatus(it, statuses.getValue(it.locationId)) }
+                Triple(account, Snapshot(restored, Instant.now()), checkNotNull(loginClient.session))
+            } finally {
+                loginClient.clearSession()
+            }
+        }
+        withContext(Dispatchers.IO) {
+            if (Commands.pending(getApplication()).isNotEmpty() || Commands.issues(getApplication()).isNotEmpty()) Commands.clear(getApplication())
+            check(prefs.edit().putString("tccAccountId", account).commit()) { "Could not save the TCC account." }
+            client.replaceSession(session)
+        }
+        publish(snapshot)
+        _state.update { it.copy(connected = true, reconnecting = false, live = true, message = null, error = false) }
+        nextRefresh = Instant.now().plusSeconds(180)
         warmSchedules()
         BackgroundSync.ensureScheduled(getApplication())
         HomeActions.sync(getApplication())
     }
     fun selectHome(key: String) { if (!_state.value.busy) { scheduleJob?.cancel(); scheduleJob = null; _state.update { it.copy(homeKey = key) }; prefs.edit().putString("home", key).apply(); warmSchedules() } }
     fun refresh() {
-        if (_state.value.busy || _state.value.refreshing || Commands.pending(getApplication()).isNotEmpty()) return
+        if (_state.value.busy || _state.value.refreshing || _state.value.reconnecting || Commands.pending(getApplication()).isNotEmpty()) return
         nextRefresh = Instant.now().plusSeconds(180)
         val version = operationVersion
         _state.update { it.copy(refreshing = true, live = false) }
@@ -138,21 +181,24 @@ class AppState(application: Application) : AndroidViewModel(application) {
             try {
                 if (_state.value.demo) refreshInternal()
                 else {
-                    val homes = _state.value.snapshot?.homes ?: withContext(Dispatchers.IO) { client.discover() }
+                    val knownAccount = prefs.getString("tccAccountId", null)
+                    val account = knownAccount ?: withContext(Dispatchers.IO) { client.accountId() }
+                    val homes = _state.value.snapshot?.homes ?: withContext(Dispatchers.IO) { client.discover(account) }
                     require(homes.isNotEmpty()) { "No Evohome systems were found." }
                     val statuses = withContext(Dispatchers.IO) { homes.distinctBy { it.locationId }.associate { it.locationId to client.status(it) } }
                     // Discard a read started before a newer heating command.
                     if (version == operationVersion) {
+                        if (knownAccount == null) prefs.edit().putString("tccAccountId", account).apply()
                         val latest = _state.value.snapshot?.homes ?: homes
                         publish(Snapshot(latest.map { applyStatus(it, statuses.getValue(it.locationId)) }, Instant.now()))
-                        _state.update { it.copy(live = true) }
+                        _state.update { it.copy(live = true, error = false, message = null) }
                     }
                 }
                 if (version == operationVersion) warmSchedules()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 nextRefresh = Instant.now().plusSeconds(if (e is CloudException && e.status == 429) 60 else 15)
-                if (version == operationVersion && e is CloudException && e.status == 401) _state.update { it.copy(error = true, message = null) }
+                if (version == operationVersion && e is CloudException && e.status != 429) notify(e.message ?: "Could not refresh temperatures.", true)
             }
             finally { if (version == operationVersion) _state.update { it.copy(refreshing = false) } }
         }

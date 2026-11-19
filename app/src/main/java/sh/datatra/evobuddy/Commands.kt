@@ -212,7 +212,7 @@ class CommandService : Service() {
         if (running?.isActive != true) running = scope.launch {
             try { withTimeout(75_000) {
                 val end = SystemClock.elapsedRealtime() + 55_000
-                while (Commands.pending(this@CommandService).isNotEmpty() && SystemClock.elapsedRealtime() < end) {
+                while (BackgroundSync.client(applicationContext).session != null && Commands.pending(this@CommandService).isNotEmpty() && SystemClock.elapsedRealtime() < end) {
                     Commands.runDue(this@CommandService)
                     val next = Commands.pending(this@CommandService).minOfOrNull { it.next } ?: break
                     val wait = Duration.between(Instant.now(), next).toMillis().coerceAtLeast(500)
@@ -239,11 +239,12 @@ class CommandRetryService : JobService() {
         running = scope.launch {
             try { withTimeout(90_000) { Commands.runDue(applicationContext) } }
             catch (_: Exception) { /* Retry at the system's next allowed opportunity. */ }
-            finally { if (generation == id) jobFinished(params, Commands.pending(applicationContext).isNotEmpty()) }
+            finally { if (generation == id) jobFinished(params, shouldRetry()) }
         }
         return true
     }
-    override fun onStopJob(params: JobParameters): Boolean { generation++; running?.cancel(); return Commands.pending(this).isNotEmpty() }
+    private fun shouldRetry() = BackgroundSync.client(applicationContext).session != null && Commands.pending(applicationContext).isNotEmpty()
+    override fun onStopJob(params: JobParameters): Boolean { generation++; running?.cancel(); return shouldRetry() }
     override fun onDestroy() { generation++; scope.cancel(); super.onDestroy() }
 }
 

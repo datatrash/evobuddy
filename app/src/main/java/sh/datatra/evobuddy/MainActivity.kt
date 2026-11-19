@@ -128,6 +128,7 @@ private val DarkColors = darkColorScheme(primary = Color(0xFFF4B468), onPrimary 
         if (target != null) {
             val home = model.state.value.snapshot?.homes?.find { it.key == target.home }
             when {
+                state.reconnecting -> Unit
                 home == null -> model.notify("This home is unavailable. Open EvoBuddy and check your account.", true)
                 state.busy -> model.notify("A change is in progress. Try the shortcut again when it finishes.", true)
                 else -> {
@@ -148,16 +149,16 @@ private val DarkColors = darkColorScheme(primary = Color(0xFFF4B468), onPrimary 
             consumed()
         }
     }
-    BackHandler(enabled = scheduleRoom != null) { scheduleRoom = null }
-    LaunchedEffect(state.connected, state.demo) {
-        if (state.connected || state.demo) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+    BackHandler(enabled = scheduleRoom != null && !state.reconnecting) { scheduleRoom = null }
+    LaunchedEffect(state.connected, state.demo, state.reconnecting) {
+        if (!state.reconnecting && (state.connected || state.demo)) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             model.reloadBackgroundCache()
             model.refresh()
             while (true) { delay(15_000); model.reloadBackgroundCache(); model.refreshAutomatically() }
         }
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = {
-        if (state.home != null) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+        if (state.home != null && !state.reconnecting) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
             listOf("Home" to Icons.Default.Home, "Shortcuts" to Icons.Default.PlayArrow, "Settings" to Icons.Default.Settings).forEachIndexed { index, item ->
                 NavigationBarItem(selected = tab == index, onClick = { tab = index; scheduleRoom = null }, icon = { Icon(item.second, null) }, label = { Text(item.first) }, colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer))
             }
@@ -165,7 +166,7 @@ private val DarkColors = darkColorScheme(primary = Color(0xFFF4B468), onPrimary 
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).widthIn(max = 760.dp)) {
             val home = state.home
-            if (home == null) Welcome(model, state)
+            if (home == null || state.reconnecting) Welcome(model, state)
             else {
                 screenState.SaveableStateProvider("${home.key}:${if (scheduleRoom != null) "schedule" else tab}") {
                     if (scheduleRoom != null) ScheduleScreen(model, state, scheduleRoom, { scheduleRoom = it }, { scheduleRoom = null })
@@ -204,17 +205,28 @@ fun hasFreshReadings(state: UiState, now: Instant): Boolean = state.live && stat
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
+    var disconnect by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { RadiatorMark(); Text("evobuddy", style = MaterialTheme.typography.titleLarge, letterSpacing = (-0.8).sp) } }
-        item { Text("Connect Evohome", style = MaterialTheme.typography.headlineMedium); Spacer(Modifier.height(8.dp)); Text("Sign in with your European Total Connect Comfort account.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item {
+            Text(if (state.reconnecting) "Reconnect Evohome" else "Connect Evohome", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(if (state.reconnecting) "Sign in with your original TCC account to keep your shortcuts and settings." else "Sign in with your European Total Connect Comfort account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         item { InlineError(state) }
         item { OutlinedTextField(email, { email = it }, label = { Text("TCC email") }, singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)) }
         item { OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth(), visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Hide" else "Show") } }) }
         item { Button(onClick = { val secret = password; password = ""; model.login(email, secret) }, enabled = !state.busy && email.isNotBlank() && password.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(54.dp)) { Text("Sign in") } }
-        if (state.connected) item { OutlinedButton(onClick = model::refresh, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Retry loading my home") } }
-        item { TextButton(onClick = model::enterDemo, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Explore the demo") } }
+        if (state.reconnecting) item {
+            if (state.connected) TextButton(onClick = model::cancelReconnect, enabled = !state.busy) { Text("Cancel") }
+            else TextButton(onClick = { disconnect = true }, enabled = !state.busy) { Text("Disconnect account") }
+        } else {
+            if (state.connected) item { OutlinedButton(onClick = model::refresh, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Retry loading my home") } }
+            item { TextButton(onClick = model::enterDemo, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Explore the demo") } }
+        }
         item { Hint("Connects directly to Resideo. Your password is never saved; session tokens are encrypted on this phone.\n\nIndependent app. Not affiliated with Honeywell or Resideo.") }
     }
+    if (disconnect) DisconnectDialog(model, false) { disconnect = false }
 }
 @Composable fun TemperatureControl(value: Double, room: Room, onChange: (Double) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
@@ -443,19 +455,29 @@ fun hasFreshReadings(state: UiState, now: Instant): Boolean = state.live && stat
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Settings", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium); SyncIndicator(model, state) } }
         item { SettingsCard("Home") { state.snapshot!!.homes.forEach { home -> Row(Modifier.fillMaxWidth().clickable(enabled = !state.busy) { model.selectHome(home.key) }, verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = state.home?.key == home.key, onClick = { model.selectHome(home.key) }, enabled = !state.busy); Column { Text(home.name); Hint(home.zoneId) } } } } }
         item { SettingsCard("Appearance") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("System", "Light", "Dark").forEach { FilterChip(selected = state.theme == it, onClick = { model.setTheme(it) }, label = { Text(it) }) } } } }
-        item { SettingsCard("Connection") { Text(if (state.demo) "Demo mode" else "European Total Connect Comfort"); if (state.demo) Hint("Sample data. No devices connected."); Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = { signOut = true }, enabled = !state.busy) { Text(if (state.demo) "Connect TCC account" else "Disconnect account") } } }
+        item {
+            SettingsCard("Connection") {
+                Text(if (state.demo) "Demo mode" else "European Total Connect Comfort")
+                if (state.demo) Hint("Sample data. No devices connected.")
+                else OutlinedButton(onClick = model::reconnect, enabled = !state.busy) { Text("Reconnect account") }
+                TextButton(onClick = { signOut = true }, enabled = !state.busy) { Text(if (state.demo) "Connect TCC account" else "Disconnect account") }
+            }
+        }
         item { SettingsCard("Privacy & storage") { Hint("Your password is never stored. Session tokens are encrypted with Android Keystore. Room readings, schedules, backups and shortcuts stay in this app’s private storage. Android backup is disabled. Disconnecting clears account data from this device.") } }
         item {
             Row(Modifier.fillMaxWidth().clickable { uriHandler.openUri("https://evobuddy.datatra.sh") }.semantics { contentDescription = "Open EvoBuddy website" }.padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
                 RadiatorMark()
-                Column { Text("EvoBuddy", style = MaterialTheme.typography.titleMedium); Hint("Version 0.1.10 · independent Evohome app") }
+                Column { Text("EvoBuddy", style = MaterialTheme.typography.titleMedium); Hint("Version 0.1.11 · independent Evohome app") }
             }
             Spacer(Modifier.height(10.dp))
             Text("Not affiliated with Honeywell or Resideo.", Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
     }
-    if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text(if (state.demo) "Connect your home?" else "Disconnect account?") }, text = { Text("This clears saved rooms, schedules, backups and shortcuts on this device. Your controller’s settings stay as they are.") }, confirmButton = { TextButton(onClick = { model.logout(); signOut = false }) { Text("Continue") } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text("Cancel") } })
+    if (signOut) DisconnectDialog(model, state.demo) { signOut = false }
+}
+@Composable private fun DisconnectDialog(model: AppState, demo: Boolean, dismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = dismiss, title = { Text(if (demo) "Connect your home?" else "Disconnect account?") }, text = { Text("This clears saved rooms, schedules, backups and shortcuts on this device. Your controller’s settings stay as they are.") }, confirmButton = { TextButton(onClick = { model.logout(); dismiss() }) { Text("Continue") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }
 @Composable private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); content() } }

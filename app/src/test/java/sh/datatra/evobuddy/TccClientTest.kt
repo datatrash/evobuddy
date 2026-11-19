@@ -5,6 +5,10 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
 import java.time.Instant
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class TccClientTest {
     data class Call(val method: String, val path: String, val headers: Map<String, String>, val body: String?)
@@ -41,6 +45,58 @@ class TccClientTest {
         val error = assertThrows(CloudException::class.java) { client.request("GET", "userAccount") }
         assertEquals(3, fake.calls.size)
         assertFalse(error.message!!.contains("private detail"))
+        assertTrue(client.sessionRejected.value)
+        assertNull(client.session)
+    }
+    @Test fun `revoked refresh token is removed and is never retried`() {
+        val fake = Fake(HttpResult(400, "{\"error\":\"invalid_grant\"}"))
+        var removed = false
+        val client = TccClient(fake, removeToken = { removed = true }).apply {
+            session = session().put("expiresAt", Instant.EPOCH.toString())
+        }
+        assertEquals(401, assertThrows(CloudException::class.java) { client.request("GET", "userAccount") }.status)
+        assertTrue(removed)
+        assertTrue(client.sessionRejected.value)
+        assertThrows(CloudException::class.java) { client.request("GET", "userAccount") }
+        assertEquals(1, fake.calls.size)
+    }
+    @Test fun `temporary refresh failure keeps the current session`() {
+        for (status in listOf(429, 503)) {
+            val fake = Fake(HttpResult(status, ""))
+            val client = TccClient(fake, removeToken = { fail("A temporary failure must retain the token") }).apply {
+                session = session().put("expiresAt", Instant.EPOCH.toString())
+            }
+            assertEquals(status, assertThrows(CloudException::class.java) { client.request("GET", "userAccount") }.status)
+            assertFalse(client.sessionRejected.value)
+            assertEquals("test-refresh", client.session!!.getString("refresh_token"))
+        }
+    }
+    @Test fun `refresh can replace the access token while retaining a refresh token`() {
+        val fake = Fake(HttpResult(200, """{"access_token":"new-access","expires_in":1800}"""), HttpResult(200, "{}"))
+        val client = TccClient(fake).apply { session = session().put("expiresAt", Instant.EPOCH.toString()) }
+        client.request("GET", "userAccount")
+        assertEquals("test-refresh", client.session!!.getString("refresh_token"))
+        assertEquals("bearer new-access", fake.calls[1].headers["Authorization"])
+    }
+    @Test fun `concurrent requests rejected for the same token share a refresh`() {
+        val rejectedRequests = CyclicBarrier(2)
+        val refreshes = AtomicInteger()
+        val client = TccClient(Transport { method, _, headers, _ ->
+            when {
+                method == "POST" -> { refreshes.incrementAndGet(); tokenResponse }
+                headers["Authorization"] == "bearer test-access" -> {
+                    rejectedRequests.await(5, TimeUnit.SECONDS)
+                    HttpResult(401, "")
+                }
+                else -> HttpResult(200, "{}")
+            }
+        }).apply { session = session() }
+        val worker = Executors.newFixedThreadPool(2)
+        try {
+            val requests = List(2) { worker.submit<String> { client.request("GET", "userAccount") } }
+            requests.forEach { assertEquals("{}", it.get(5, TimeUnit.SECONDS)) }
+            assertEquals(1, refreshes.get())
+        } finally { worker.shutdownNow() }
     }
     @Test fun `timed overrides include UTC expiry and expected vendor keys`() {
         val fake = Fake(HttpResult(200, "{\"id\":\"123\"}"))
