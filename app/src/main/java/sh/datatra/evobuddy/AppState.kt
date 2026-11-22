@@ -22,7 +22,7 @@ data class UiState(
     val error: Boolean = false, val favourites: Set<String> = emptySet(), val shortcuts: List<Shortcut> = emptyList(),
     val theme: String = "System", val scheduleErrors: Map<String, String> = emptyMap(), val scheduleSync: Map<String, Instant> = emptyMap(),
     val roomOrder: Map<String, List<String>> = emptyMap(), val shortcutRuns: Map<String, List<RoomCommandResult>> = emptyMap(),
-    val pendingChanges: Int = 0, val commandIssues: Map<String, String> = emptyMap(), val reconnecting: Boolean = false
+    val pendingChanges: List<RoomCommand> = emptyList(), val commandIssues: Map<String, String> = emptyMap(), val reconnecting: Boolean = false
 ) { val home: Home? get() = snapshot?.homes?.firstOrNull { it.key == homeKey } ?: snapshot?.homes?.firstOrNull() }
 
 class AppState @JvmOverloads constructor(application: Application, private val loginClient: TccClient = TccClient()) : AndroidViewModel(application) {
@@ -33,7 +33,7 @@ class AppState @JvmOverloads constructor(application: Application, private val l
     private val _state = MutableStateFlow(UiState(
         snapshot = runCatching { prefs.getString("cache", null)?.let { snapshotFromJson(JSONObject(it)) } }.getOrNull(),
         homeKey = prefs.getString("home", null), demo = prefs.getBoolean("demo", false), connected = client.session != null,
-        pendingChanges = Commands.pending(application).size, commandIssues = Commands.issues(application),
+        pendingChanges = Commands.pending(application), commandIssues = Commands.issues(application),
         reconnecting = client.session == null && !prefs.getBoolean("demo", false) && hasSavedAccount(),
         favourites = prefs.getStringSet("favourites", emptySet())!!.toSet(), theme = prefs.getString("theme", "System")!!,
         shortcuts = runCatching { JSONArray(prefs.getString("shortcuts", "[]")).objects().map(Shortcut::parse) }.getOrDefault(emptyList()),
@@ -47,13 +47,13 @@ class AppState @JvmOverloads constructor(application: Application, private val l
     private val handler = Handler(Looper.getMainLooper())
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "cache" || key == "pendingChanges" || key == "commandIssues") handler.post {
-            val count = Commands.pending(getApplication()).size
-            if (key == "pendingChanges") {
+            val pending = if (key == "pendingChanges") Commands.pending(getApplication()) else _state.value.pendingChanges
+            if (key == "pendingChanges" && _state.value.pendingChanges.map { it.id } != pending.map { it.id }) {
                 operationVersion++; refreshJob?.cancel(); scheduleJob?.cancel()
                 _state.update { it.copy(refreshing = false) }
             }
-            if (_state.value.pendingChanges > 0 && count == 0) nextRefresh = Instant.EPOCH
-            _state.update { it.copy(pendingChanges = count, commandIssues = Commands.issues(getApplication())) }
+            if (_state.value.pendingChanges.isNotEmpty() && pending.isEmpty()) nextRefresh = Instant.EPOCH
+            _state.update { it.copy(pendingChanges = pending, commandIssues = Commands.issues(getApplication())) }
             reloadBackgroundCache()
         }
     }
@@ -172,8 +172,9 @@ class AppState @JvmOverloads constructor(application: Application, private val l
         HomeActions.sync(getApplication())
     }
     fun selectHome(key: String) { if (!_state.value.busy) { scheduleJob?.cancel(); scheduleJob = null; _state.update { it.copy(homeKey = key) }; prefs.edit().putString("home", key).apply(); warmSchedules() } }
-    fun refresh() {
-        if (_state.value.busy || _state.value.refreshing || _state.value.reconnecting || Commands.pending(getApplication()).isNotEmpty()) return
+    fun refresh(automatic: Boolean = false) {
+        if (_state.value.busy || _state.value.refreshing || _state.value.reconnecting) return
+        if (automatic && Commands.pending(getApplication()).isNotEmpty()) return
         nextRefresh = Instant.now().plusSeconds(180)
         val version = operationVersion
         _state.update { it.copy(refreshing = true, live = false) }
@@ -203,7 +204,7 @@ class AppState @JvmOverloads constructor(application: Application, private val l
             finally { if (version == operationVersion) _state.update { it.copy(refreshing = false) } }
         }
     }
-    fun refreshAutomatically() { if (Instant.now() >= nextRefresh) refresh() }
+    fun refreshAutomatically() { if (Instant.now() >= nextRefresh) refresh(automatic = true) }
     fun acknowledgeSyncIssue() { Commands.clearIssues(getApplication()); _state.update { it.copy(commandIssues = emptyMap(), error = false, message = null) } }
     fun reloadBackgroundCache() {
         if (_state.value.busy) return

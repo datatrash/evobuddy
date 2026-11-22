@@ -49,6 +49,27 @@ class DemoFlowTest {
         })
         onView(withText(android.R.string.ok)).perform(click())
     }
+    @Test fun pendingResumeShowsOnTheRoomTileAndAllowsManualRefresh() {
+        compose.onNodeWithText("Explore the demo").performClick()
+        compose.onNode(hasText("Home") and hasClickAction()).performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room-living").fetchSemanticsNodes().isNotEmpty() }
+
+        val model = ViewModelProvider(compose.activity)[AppState::class.java]
+        val home = model.state.value.home!!
+        val room = home.rooms.first { it.id == "living" }
+        try {
+            compose.runOnIdle { Commands.enqueue(compose.activity, home, listOf(room), null, null, resume = true) }
+            compose.onNodeWithText("Resuming schedule…", useUnmergedTree = true).assertIsDisplayed()
+            val beforeRefresh = model.state.value.snapshot!!.updated
+            compose.onNode(hasClickAction() and hasAnyDescendant(hasContentDescription("Syncing")), useUnmergedTree = true).performClick()
+            compose.waitUntil(10000) { model.state.value.snapshot!!.updated > beforeRefresh }
+            compose.onNodeWithText("Resuming schedule…", useUnmergedTree = true).assertIsDisplayed()
+        } finally {
+            compose.runOnIdle { Commands.clear(compose.activity) }
+        }
+        compose.onNodeWithText("Resuming schedule…", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test fun roomTemperaturesAndHigherSetpointsFitOnOneLine() {
         compose.onNodeWithText("Explore the demo").performClick()
         compose.onNode(hasText("Home") and hasClickAction()).performClick()

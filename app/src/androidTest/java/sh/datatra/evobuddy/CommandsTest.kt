@@ -90,6 +90,28 @@ class CommandsTest {
         assertTrue(Commands.pending(context).isEmpty())
         assertEquals(listOf(22.0, 23.0), writes.map { it.second.getDouble("heatSetpointValue") })
     }
+    @Test fun resumeIsSentEvenIfStatusStillShowsTheScheduleAfterAnOverrideWrite() {
+        val client = client()
+        val room = home.rooms.first()
+        enqueue(listOf(room), 23.0); run(client)
+        assertEquals("FollowSchedule", actual.getValue(room.id).mode)
+
+        Commands.enqueue(context, home, listOf(room), null, null, resume = true, now = clock)
+        run(client)
+        assertEquals(listOf("TemporaryOverride", "FollowSchedule"), writes.map { it.second.getString("setpointMode") })
+
+        // The earlier override reaches the controller before the resume does.
+        apply(room.id, writes.first().second)
+        for (seconds in (3L..58L step 5)) {
+            clock = now.plusSeconds(seconds); run(client)
+            assertEquals(clock.plusSeconds(5), Commands.pending(context).single().next)
+        }
+        assertEquals(2, writes.size)
+        actual[room.id] = room
+        clock = now.plusSeconds(63); run(client)
+        assertTrue(Commands.pending(context).isEmpty())
+        assertEquals(2, writes.size)
+    }
     @Test fun expiredChangesAndLogoutCannotBeReplayed() {
         val client = client()
         enqueue(until = now.plusSeconds(10)); clock = now.plusSeconds(15); run(client)

@@ -153,7 +153,7 @@ private val DarkColors = darkColorScheme(primary = Color(0xFFF4B468), onPrimary 
     LaunchedEffect(state.connected, state.demo, state.reconnecting) {
         if (!state.reconnecting && (state.connected || state.demo)) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             model.reloadBackgroundCache()
-            model.refresh()
+            model.refresh(automatic = true)
             while (true) { delay(15_000); model.reloadBackgroundCache(); model.refreshAutomatically() }
         }
     }
@@ -189,7 +189,7 @@ fun hasFreshReadings(state: UiState, now: Instant): Boolean = state.live && stat
 @Composable fun SyncIndicator(model: AppState, state: UiState) {
     val attention = state.error || state.commandIssues.isNotEmpty()
     IconButton(onClick = { model.acknowledgeSyncIssue(); model.refresh() }, enabled = !state.busy && !state.refreshing, modifier = Modifier.size(48.dp)) {
-        if (state.busy || state.refreshing || state.pendingChanges > 0) CircularProgressIndicator(Modifier.size(18.dp).semantics { contentDescription = "Syncing" }, strokeWidth = 2.dp)
+        if (state.busy || state.refreshing || state.pendingChanges.isNotEmpty()) CircularProgressIndicator(Modifier.size(18.dp).semantics { contentDescription = "Syncing" }, strokeWidth = 2.dp)
         else BadgedBox(badge = { if (attention) Badge { Text("!") } }) {
             Icon(Icons.Default.Refresh, if (attention) "Refresh temperatures; a change could not be confirmed" else "Refresh temperatures", Modifier.size(20.dp),
                 tint = if (attention) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -221,7 +221,7 @@ fun hasFreshReadings(state: UiState, now: Instant): Boolean = state.live && stat
             if (state.connected) TextButton(onClick = model::cancelReconnect, enabled = !state.busy) { Text("Cancel") }
             else TextButton(onClick = { disconnect = true }, enabled = !state.busy) { Text("Disconnect account") }
         } else {
-            if (state.connected) item { OutlinedButton(onClick = model::refresh, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Retry loading my home") } }
+            if (state.connected) item { OutlinedButton(onClick = { model.refresh() }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Retry loading my home") } }
             item { TextButton(onClick = model::enterDemo, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Explore the demo") } }
         }
         item { Hint("Connects directly to Resideo. Your password is never saved; session tokens are encrypted on this phone.\n\nIndependent app. Not affiliated with Honeywell or Resideo.") }

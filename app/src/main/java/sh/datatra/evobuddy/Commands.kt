@@ -155,8 +155,17 @@ object Commands {
                     ensureActive()
                     if (!current(context, command)) continue
                     val actual = observed.rooms.first { it.id == command.room }
-                    if (actual.available && command.matches(actual)) { replace(context, command, null); continue }
+                    // An initial resume must be sent even if a preceding override is still propagating.
+                    if (actual.available && command.matches(actual) && (!command.resume || command.lastWrite != null)) {
+                        replace(context, command, null); continue
+                    }
                     if (command.deadline <= clock()) { replace(context, command, null); continue }
+                    val lastWrite = command.lastWrite
+                    // Status may still show the override while the controller processes the resume.
+                    if (actual.available && command.resume && lastWrite != null && clock() < lastWrite.plusSeconds(60)) {
+                        replace(context, command, command.copy(next = minOf(command.deadline, clock().plusSeconds(5))))
+                        continue
+                    }
                     // Let accepted/ambiguous writes settle before considering an identical retry.
                     if (!actual.available || command.lastWrite?.let { Duration.between(it, clock()).seconds < 20 } == true) {
                         retry(context, command, clock()); continue
@@ -211,7 +220,7 @@ class CommandService : Service() {
         wake.trySend(Unit)
         if (running?.isActive != true) running = scope.launch {
             try { withTimeout(75_000) {
-                val end = SystemClock.elapsedRealtime() + 55_000
+                val end = SystemClock.elapsedRealtime() + 65_000
                 while (BackgroundSync.client(applicationContext).session != null && Commands.pending(this@CommandService).isNotEmpty() && SystemClock.elapsedRealtime() < end) {
                     Commands.runDue(this@CommandService)
                     val next = Commands.pending(this@CommandService).minOfOrNull { it.next } ?: break

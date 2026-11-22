@@ -141,12 +141,14 @@ private fun LazyGridItemInfo.bounds() = Rect(offset.x.toFloat(), offset.y.toFloa
                         if (index in 0 until ids.lastIndex) { model.moveRoom(room.id, ids[index + 1]); model.persistRoomOrder(); true } else false
                     }
                 )
-            }) { RoomCard(room, home, now, "${home.key}:${room.id}" in state.favourites, { openRoom(room) }, { model.toggleFavourite(room) }) }
+            }) { RoomCard(room, home, now, "${home.key}:${room.id}" in state.favourites,
+                state.pendingChanges.any { it.home == home.key && it.room == room.id && it.resume },
+                { openRoom(room) }, { model.toggleFavourite(room) }) }
         }
     }
 }
 
-@Composable private fun RoomCard(room: Room, home: Home, now: Instant, favourite: Boolean, open: () -> Unit, toggleFavourite: () -> Unit) {
+@Composable private fun RoomCard(room: Room, home: Home, now: Instant, favourite: Boolean, resumingSchedule: Boolean, open: () -> Unit, toggleFavourite: () -> Unit) {
     val override = room.mode != "FollowSchedule"
     val next = nextRoomEvent(room, home, now)
     Surface(onClick = open, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, if (override) MaterialTheme.colorScheme.primary.copy(alpha = .45f) else MaterialTheme.colorScheme.outlineVariant)) {
@@ -179,8 +181,14 @@ private fun LazyGridItemInfo.bounds() = Rect(offset.x.toFloat(), offset.y.toFloa
                 Text("Target ${temp(target)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Text(if (!room.available) "Room unavailable" else if (override) room.until?.let { "Until ${timeLabel(it, home.zone)}" } ?: "Permanent hold" else "On schedule", style = MaterialTheme.typography.labelSmall, color = if (override) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
-            Hint(next?.let {
+            val status = when {
+                resumingSchedule -> "Resuming schedule…"
+                !room.available -> "Room unavailable"
+                override -> room.until?.let { "Until ${timeLabel(it, home.zone)}" } ?: "Permanent hold"
+                else -> "On schedule"
+            }
+            Text(status, style = MaterialTheme.typography.labelSmall, color = if (override || resumingSchedule) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
+            if (!resumingSchedule) Hint(next?.let {
                 val target = it.temperature?.let(::temp) ?: "schedule"
                 if (it.resumesSchedule) "Resumes $target at ${timeLabel(it.at, home.zone)}" else "Next $target at ${timeLabel(it.at, home.zone)}"
             } ?: if (room.mode == "PermanentOverride") "Until changed" else "Tap to manage", Modifier.heightIn(min = 30.dp))
