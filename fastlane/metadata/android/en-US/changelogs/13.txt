@@ -1,0 +1,1 @@
+When the setpoint is higher than the current temperature, room tiles show both temperatures on one line with an arrow.

@@ -1,0 +1,1 @@
+Als de ingestelde temperatuur hoger is dan de huidige temperatuur, tonen de kamertegels beide temperaturen op één regel met een pijl.
