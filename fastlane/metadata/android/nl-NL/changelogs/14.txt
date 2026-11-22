@@ -1,0 +1,1 @@
+Na een handmatige wijziging tonen kamertegels “Resuming schedule…” terwijl EvoBuddy op bevestiging van de regelaar wacht. EvoBuddy controleert vaker op bevestiging en je kunt tijdens het wachten handmatig vernieuwen.

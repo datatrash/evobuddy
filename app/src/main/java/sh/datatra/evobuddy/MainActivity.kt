@@ -468,7 +468,7 @@ fun hasFreshReadings(state: UiState, now: Instant): Boolean = state.live && stat
             Row(Modifier.fillMaxWidth().clickable { uriHandler.openUri("https://evobuddy.datatra.sh") }.semantics { contentDescription = "Open EvoBuddy website" }.padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
                 RadiatorMark()
-                Column { Text("EvoBuddy", style = MaterialTheme.typography.titleMedium); Hint("Version 0.1.12 · independent Evohome app") }
+                Column { Text("EvoBuddy", style = MaterialTheme.typography.titleMedium); Hint("Version 0.1.13 · independent Evohome app") }
             }
             Spacer(Modifier.height(10.dp))
             Text("Not affiliated with Honeywell or Resideo.", Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

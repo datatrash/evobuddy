@@ -1,0 +1,1 @@
+After a manual override, room tiles now show “Resuming schedule…” while the controller confirms the change. EvoBuddy checks for confirmation more frequently, and you can refresh manually while you wait.
