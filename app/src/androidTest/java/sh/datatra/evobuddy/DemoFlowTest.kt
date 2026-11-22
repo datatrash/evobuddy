@@ -2,6 +2,8 @@ package sh.datatra.evobuddy
 
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -47,6 +49,34 @@ class DemoFlowTest {
         })
         onView(withText(android.R.string.ok)).perform(click())
     }
+    @Test fun roomTemperaturesAndHigherSetpointsFitOnOneLine() {
+        compose.onNodeWithText("Explore the demo").performClick()
+        compose.onNode(hasText("Home") and hasClickAction()).performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room-living").fetchSemanticsNodes().isNotEmpty() }
+
+        for (reading in listOf("${temp(20.1)} → ${temp(21.0)}", "${temp(19.4)} → ${temp(20.0)}")) {
+            compose.onNodeWithText(reading, useUnmergedTree = true).assertIsDisplayed()
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { getLayout ->
+                    val results = mutableListOf<TextLayoutResult>()
+                    assertTrue(getLayout(results))
+                    val layout = results.single()
+                    assertEquals(reading, 1, layout.lineCount)
+                    assertFalse("$reading is clipped", layout.hasVisualOverflow)
+                }
+        }
+        compose.onNode(
+            hasAnyAncestor(hasTestTag("room-living")) and hasText("Target ${temp(21.0)}"),
+            useUnmergedTree = true
+        ).assertDoesNotExist()
+        screenshot("room-temperatures")
+
+        compose.onNodeWithTag("rooms-grid").performScrollToNode(hasTestTag("room-bedroom"))
+        compose.onNode(
+            hasAnyAncestor(hasTestTag("room-bedroom")) and hasText("Target ${temp(17.0)}"),
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+    }
+
     @Test fun roomsOverridesMultiRoomShortcutsAndQuietSync() {
         screenshot("01-welcome")
         compose.onNodeWithText("Explore the demo").performClick()
@@ -60,7 +90,7 @@ class DemoFlowTest {
         compose.onNode(hasText("Cached", substring = true)).assertDoesNotExist()
         compose.onNode(hasText("Updated", substring = true)).assertDoesNotExist()
         compose.onNodeWithText("Schedule", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithText("20.1°", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("20.1° → 21.0°", useUnmergedTree = true).assertIsDisplayed()
 
         val grid = compose.onNodeWithTag("rooms-grid")
         val gridBounds = grid.fetchSemanticsNode().boundsInRoot
@@ -121,7 +151,7 @@ class DemoFlowTest {
         compose.onNodeWithText("Save to 1 room(s)").performClick()
         compose.waitUntil(10000) { !model.state.value.busy && model.state.value.home!!.rooms.first { it.id == "living" }.schedule!!.days.first().first().let { it.temperature == 21.0 && it.minute == 400 } }
         compose.onNodeWithContentDescription("Back to rooms").performClick()
-        compose.onNodeWithText("20.1°", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("20.1° → 21.0°", useUnmergedTree = true).assertIsDisplayed()
 
         compose.onNodeWithText("Shortcuts", useUnmergedTree = true).performClick()
         compose.onNodeWithText("New shortcut").performClick()

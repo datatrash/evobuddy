@@ -7,6 +7,8 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -159,8 +161,23 @@ private fun LazyGridItemInfo.bounds() = Rect(offset.x.toFloat(), offset.y.toFloa
                 IconToggleButton(checked = favourite, onCheckedChange = { toggleFavourite() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Star, if (favourite) "Remove ${room.name} from favourites" else "Favourite ${room.name}", tint = if (favourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.size(19.dp)) }
             }
             Text(room.name, style = MaterialTheme.typography.titleSmall)
-            Text(temp(room.measured), fontSize = 36.sp, fontWeight = FontWeight.Light, letterSpacing = (-1.6).sp)
-            Text("Target ${temp(room.target)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val measured = room.measured
+            val target = room.target
+            if (measured != null && target != null && target > measured) {
+                BasicText(
+                    "${temp(measured)} → ${temp(target)}",
+                    style = LocalTextStyle.current.copy(
+                        color = LocalContentColor.current,
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = (-1.6).sp
+                    ),
+                    maxLines = 1,
+                    autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = 24.sp, stepSize = 0.5.sp)
+                )
+            } else {
+                Text(temp(measured), fontSize = 36.sp, fontWeight = FontWeight.Light, letterSpacing = (-1.6).sp)
+                Text("Target ${temp(target)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(if (!room.available) "Room unavailable" else if (override) room.until?.let { "Until ${timeLabel(it, home.zone)}" } ?: "Permanent hold" else "On schedule", style = MaterialTheme.typography.labelSmall, color = if (override) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
             Hint(next?.let {
