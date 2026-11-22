@@ -22,7 +22,7 @@ Repo: https://github.com/datatrash/evobuddy.git
 Builds:
   - versionName: 0.1.12
     versionCode: 13
-    commit: a91398fb9e99114978749584f5cbf3b74631d9c2
+    commit: 9412203faadebf7f793b5983cdabbba4ac0de94c
     subdir: app
     gradle:
       - yes
